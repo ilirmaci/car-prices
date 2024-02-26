@@ -2,7 +2,7 @@
 Second hand car prices around Amsterdam
 
 ## TL;DR:
-- A 5-year-old Fabia with 70k KM, a manual gearbox, and 90 HP costs about EUR **12.5K-15.2K**
+- A 5-year-old Fabia with 70k KM, a manual gearbox, and 90 HP should cost about EUR **12.5K-15.2K**
 
 - Other models with similar features cost this much more:
     * Golf 3500
