@@ -23,7 +23,7 @@ print(f"Scraping data for {len(cars)} models...")
 data = []
 
 for car in cars:
-    unparsed_pages = search_car(*car, max_km=180_000, max_price=35_000)
+    unparsed_pages = search_car(*car, max_km=180_000)
     parsed_records = pd.DataFrame(extract(unparsed_pages))
     print(f"Got {parsed_records.shape[0]} records for {str(car)}")
     data.append(parsed_records)
