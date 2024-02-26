@@ -19,4 +19,5 @@ Run `$ mkdir -p data; python download.py` to download the data as a CSV file.
 If you have RStudio/Quarto, play with `analysis.qmd` to customize the analysis.
 
 If you don't, check out `analysis.md` or `analysis.html` for the results.
-If the images are hard to read, open them in a new tab for full detail.
+If the images are hard to read, the versions in `analysis_files/figure-html` have
+much better resolution.
