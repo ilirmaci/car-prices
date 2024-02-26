@@ -1,0 +1,173 @@
+---
+title: "Used car prices"
+format: markdown_github
+editor: source
+---
+
+```{r}
+library(ggplot2)
+library(data.table)
+library(RColorBrewer)
+library(splines)
+library(magrittr)
+```
+
+## Data cleaning
+```{r}
+dd = fread("data/extracted2024-02-26.csv")
+
+dd[, .N, keyby=.(fuel_type, transmission)]
+
+# drop non-benzine cars
+dd = dd[fuel_type == "b"]
+
+# drop unusual transmissions
+dd = dd[transmission %in% c("Automatisch", "Handgeschakeld")]
+
+# final check
+dd[, .N, keyby=.(country, fuel_type, transmission)]
+```
+
+```{r}
+ggplot(dd, aes(pmin(price, 50000), color=model, fill=model)) +
+  geom_density(alpha=0.5) +
+  scale_color_brewer(type='qual', palette=2) +
+  scale_fill_brewer(type='qual', palette=2) +
+  theme_bw()
+```
+
+```{r}
+dd[, mileage := as.integer(mileage)]
+
+dd[, reg_year := as.integer(sapply(strsplit(registration, "-", fixed=T), function(x) x[[2]]))]
+dd[, reg_month := as.integer(sapply(strsplit(registration, "-", fixed=T), function(x) x[[1]]))]
+dd[, months_old := 12*2024 + 1 - 12*reg_year - reg_month]
+
+# remove new cars
+dd = dd[months_old >= 3]
+
+# remove antiques
+dd = dd[months_old < 200]
+
+# check distribution again
+ggplot(dd, aes(pmin(price, 50000), color=model, fill=model)) +
+  geom_density(alpha=0.5) +
+  scale_color_brewer(type='qual', palette=2) +
+  scale_fill_brewer(type='qual', palette=2) +
+  theme_bw()
+```
+
+```{r}
+dd[, hp := as.integer(regmatches(power, regexpr("[0-9-]{1,3}(?= PK)", power, perl=T)))]
+```
+
+## Plots
+### Age vs. Price
+```{r}
+ggplot(dd, aes(months_old, price, color=model, fill=model)) +
+  geom_point(alpha=0.5) +
+  geom_smooth() +
+  facet_wrap(~ transmission, ncol=2) +
+  scale_y_continuous(limits=c(0, 50000)) +
+  scale_x_continuous(limits=c(0, 100)) +
+  theme_bw() +
+  theme(legend.position="bottom")
+```
+
+```{r}
+# same plot, group by model
+ggplot(dd, aes(months_old, price, color=transmission, fill=transmission)) +
+  geom_point(alpha=0.5) +
+  geom_smooth() +
+  facet_wrap(~ model, ncol=2) +
+  scale_y_continuous(limits=c(0, 50000)) +
+  scale_x_continuous(limits=c(0, 100)) +
+  theme_bw() +
+  theme(legend.position="bottom")
+```
+
+### Mileage vs Price
+```{r}
+ggplot(dd, aes(mileage, price, color=model, fill=model)) +
+  geom_point(alpha=0.5) +
+  geom_smooth() +
+  facet_wrap(~ transmission, ncol=2) +
+  scale_y_continuous(limits=c(0, 50000)) +
+  scale_x_continuous(limits=c(10000, 150000), labels=function(x) x/1000) +
+  scale_color_brewer(type="qual", palette="Set2") +
+  scale_fill_brewer(type="qual", palette="Set2") +
+  labs(x="mileage (K)") +
+  theme_bw() +
+  theme(legend.position="bottom")
+```
+
+```{r}
+# same plot, group by model
+ggplot(dd, aes(mileage, price, color=transmission, fill=transmission)) +
+  geom_point(alpha=0.5) +
+  geom_smooth() +
+  facet_wrap(~ model, ncol=2) +
+  scale_y_continuous(limits=c(0, 50000)) +
+  scale_x_continuous(limits=c(10000, 150000), labels=function(x) x/1000) +
+  scale_color_brewer(type="qual", palette="Set1") +
+  scale_fill_brewer(type="qual", palette="Set1") +
+  labs(x="mileage (K)") +
+  theme_bw() +
+  theme(legend.position="bottom")
+```
+## Linear regression with non-linear features
+```{r}
+# let's drop the RAV-4, it's too different and we don't have a lot of data for it
+ddm_norav = dd[model != "rav 4"]
+
+m1_norav = lm(price ~ model + ns(mileage, 2) + ns(months_old, 2) + transmission + ns(hp, 2), data=ddm_norav)
+summary(m1_norav)
+```
+This is supposed to be a realistic model, with car age, mileage, and hp modeled as quadratic features (bendy line with max one hump or trough). The Skoda Fabia has been picked as the reference model, because it sorts `model` alphabetically by default.
+
+This model seems to predict 94% of variability in the data. This could be overfitting, but I'm not afraid of this with such a simple model and so many data points. More likely we have accounted for the factors that affect the price correctly.
+
+What do we see? Compared to a similar Fabia, we need to pay:
+
+- 3372 more for a Golf
+- 2335 more for a Kamiq
+- 1961 more for an Octavia
+- about 6k more for a T-Roc
+
+We can also try to figure out the price changes caused by different features, but it's not straightforward to read this from the parameters. We will try a simpler, fully linear, model so we can read those from the `lm` output.
+
+## Linear model
+```{r}
+# change variable units so the coefficient values are easier to understand
+m2_norav = lm(price ~ model + I(mileage/10000) + I(months_old/12) + transmission + hp, data=ddm_norav)
+summary(m2_norav)
+```
+
+This model is simpler, but has a very similar R-squared, so it's not very biased compared to the previous one (good!).
+
+The model differences are similar, but the values from the non-linear model should be more reliable. That model (probably) accounts for the car features better.
+
+What do we read here? Everything else equal, a used car's price changes like this:
+
+- Loses EUR 450 for every 10k KM
+- Loses EUR 920 for every year on the road
+- Costs EUR 2200 more if automatic
+- Gains EUR 710 for every extra 10 HP
+
+## Prediction
+```{r}
+# how many hp does a typical Fabia have?
+dd[(model=="fabia") & (transmission=="Handgeschakeld"), hp] %>% hist
+```
+```{r}
+# describe the car we're looking for
+typical_car = data.frame(model="fabia", mileage=70000, months_old=12*5, transmission="Handgeschakeld", hp=90)
+
+# 50% of typical 5-year, 70K km, stick Fabias should be between
+predict(m1_norav, newdata=typical_car) + quantile(resid(m1_norav), probs=c(0.25, 0.75))
+```
+
+```{r}
+# check the linear model just for certainty
+predict(m2_norav, newdata=typical_car) + quantile(resid(m2_norav), probs=c(0.25, 0.75))
+```
